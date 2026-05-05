@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Biblioteka Supabase</title>
+    <title>Biblioteka</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -19,10 +19,12 @@
                     <span class="icon">🏠</span>
                     <span>Książki</span>
                 </a>
+
                 <a class="nav-item" id="refreshDataBtn">
                     <span class="icon">🔄</span>
                     <span>Odśwież</span>
                 </a>
+
                 <a class="nav-item" id="showAllBtn">
                     <span class="icon">📖</span>
                     <span>Pokaż wszystko</span>
@@ -52,19 +54,40 @@
                     <h1>Twoja baza książek</h1>
 
                     <div class="stats-row">
-                        <div class="stat-pill">Książki: <strong id="statBooks">0</strong></div>
-                        <div class="stat-pill">Autorzy: <strong id="statAuthors">0</strong></div>
-                        <div class="stat-pill">Gatunki: <strong id="statGenres">0</strong></div>
-                        <div class="stat-pill">Wydawcy: <strong id="statPublishers">0</strong></div>
+                        <div class="stat-pill">
+                            Książki: <strong id="statBooks">0</strong>
+                        </div>
+
+                        <div class="stat-pill">
+                            Autorzy: <strong id="statAuthors">0</strong>
+                        </div>
+
+                        <div class="stat-pill">
+                            Gatunki: <strong id="statGenres">0</strong>
+                        </div>
+
+                        <div class="stat-pill">
+                            Wydawcy: <strong id="statPublishers">0</strong>
+                        </div>
                     </div>
 
                     <div class="filter-buttons">
-                        <button class="filter-btn active" data-filter="all">Wszystkie</button>
-                        <button class="filter-btn" data-filter="recent">Od 2000</button>
-                        <button class="filter-btn" data-filter="classic">Przed 2000</button>
+                        <button class="filter-btn active" data-filter="all">
+                            Wszystkie
+                        </button>
+
+                        <button class="filter-btn" data-filter="recent">
+                            Od 2000
+                        </button>
+
+                        <button class="filter-btn" data-filter="classic">
+                            Przed 2000
+                        </button>
                     </div>
 
-                    <div id="statusBox" class="status-box">Gotowe do pobrania danych.</div>
+                    <div id="statusBox" class="status-box">
+                        Gotowe do pobrania danych.
+                    </div>
                 </div>
 
                 <div id="booksGrid" class="books-grid"></div>
