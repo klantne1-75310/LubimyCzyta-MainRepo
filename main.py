@@ -1,147 +1,129 @@
 import os
-from typing import List, Optional
-from fastapi import FastAPI, Query
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-# Załaduj zmienne środowiskowe lokalnie (Render dostarczy je bezpośrednio)
-load_dotenv()
 
-app = FastAPI(title="Biblioteka API", description="Backend dla aplikacji bibliotecznej", version="1.0.0")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# Konfiguracja CORS – ZMIEŃ NA SWÓJ ADRES GITHUB PAGES!
-origins = [
-    "http://localhost:5500",      # dla lokalnego testowania (Live Server)
-    "http://127.0.0.1:5500",
-    "https://TWOJA-NAZWA-UZYTKOWNIKA.github.io",  # 👈 ZMIEŃ NA SWÓJ!
-]
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Brakuje SUPABASE_URL lub SUPABASE_KEY w zmiennych środowiskowych.")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+app = FastAPI(title="Biblioteka API")
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:3000",
+        "https://twoj-frontend.netlify.app"
+    ],
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Supabase – klucz serwisowy (tajny, nie umieszczaj go w frontendzie!)
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 
-if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise ValueError("Brak zmiennych środowiskowych SUPABASE_URL lub SUPABASE_SERVICE_KEY")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+class ReviewCreate(BaseModel):
+    book_id: int
+    user_name: str = Field(min_length=2, max_length=80)
+    rating: int = Field(ge=1, le=10)
+    content: str = Field(min_length=3, max_length=1000)
 
 
-# ------------------- Modele Pydantic -------------------
-class BookResponse(BaseModel):
-    id: int
-    title: str
-    year: Optional[int]
-    authors: List[str]
-    genres: List[str]
-    publishers: List[str]
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "message": "Biblioteka API działa"
+    }
 
 
-class BooksResponse(BaseModel):
-    stats: dict
-    books: List[BookResponse]
-
-
-# ------------------- Endpoint -------------------
-@app.get("/api/books", response_model=BooksResponse)
-async def get_books(
-    q: Optional[str] = Query(None, description="Fraza wyszukiwania (tytuł, autor, gatunek, wydawca)"),
-    filter: Optional[str] = Query("all", description="Filtr: all, recent (>=2000), classic (<2000)")
+@app.get("/api/books")
+def get_books(
+    search: Optional[str] = Query(default=None),
+    year_from: Optional[int] = Query(default=None),
+    year_to: Optional[int] = Query(default=None)
 ):
-    # Pobranie wszystkich potrzebnych danych w jednym zapytaniu z zagnieżdżonymi relacjami
-    # Supabase pozwala na zagnieżdżone select przez nazwy relacji (utworzone z kluczy obcych)
-    query = supabase.table("ksiazki").select(
-        "id, tytul, rok_wydania, "
-        "ksiazki_autorzy(autor_id(imie, nazwisko)), "
-        "ksiazki_gatunki(gatunek_id(nazwa)), "
-        "ksiazki_wydawcy(wydawca_id(nazwa))"
+    query = supabase.table("books").select("*")
+
+    if search:
+        query = query.ilike("title", f"%{search}%")
+
+    if year_from:
+        query = query.gte("publication_year", year_from)
+
+    if year_to:
+        query = query.lt("publication_year", year_to)
+
+    response = query.execute()
+
+    return response.data
+
+
+@app.get("/api/books/{book_id}")
+def get_book(book_id: int):
+    response = (
+        supabase
+        .table("books")
+        .select("*")
+        .eq("id", book_id)
+        .single()
+        .execute()
     )
 
-    # Wykonaj zapytanie
-    response = query.execute()
-    books_data = response.data
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Nie znaleziono książki.")
 
-    # Pobranie statystyk
-    stats = {}
-    try:
-        stats["books"] = supabase.table("ksiazki").select("*", count="exact").execute().count
-        stats["authors"] = supabase.table("autorzy").select("*", count="exact").execute().count
-        stats["genres"] = supabase.table("gatunki").select("*", count="exact").execute().count
-        stats["publishers"] = supabase.table("wydawcy").select("*", count="exact").execute().count
-    except:
-        # Fallback – policz z pobranych danych (mniej dokładne, ale lepsze niż nic)
-        stats["books"] = len(books_data)
-        stats["authors"] = 0
-        stats["genres"] = 0
-        stats["publishers"] = 0
-
-    # Przetwarzanie książek
-    books = []
-    for book in books_data:
-        # Autorzy
-        authors = []
-        for rel in book.get("ksiazki_autorzy", []):
-            if rel.get("autor_id"):
-                a = rel["autor_id"]
-                authors.append(f"{a['imie']} {a['nazwisko']}".strip())
-
-        # Gatunki
-        genres = []
-        for rel in book.get("ksiazki_gatunki", []):
-            if rel.get("gatunek_id"):
-                genres.append(rel["gatunek_id"]["nazwa"])
-
-        # Wydawcy
-        publishers = []
-        for rel in book.get("ksiazki_wydawcy", []):
-            if rel.get("wydawca_id"):
-                publishers.append(rel["wydawca_id"]["nazwa"])
-
-        book_obj = BookResponse(
-            id=book["id"],
-            title=book["tytul"],
-            year=book.get("rok_wydania"),
-            authors=authors,
-            genres=genres,
-            publishers=publishers
-        )
-        books.append(book_obj)
-
-    # Filtrowanie po stronie serwera – wyszukiwanie tekstowe
-    if q:
-        q_lower = q.lower()
-        filtered_books = []
-        for b in books:
-            haystack = " | ".join([
-                b.title,
-                str(b.year or ""),
-                *b.authors,
-                *b.genres,
-                *b.publishers
-            ]).lower()
-            if q_lower in haystack:
-                filtered_books.append(b)
-        books = filtered_books
-
-    # Filtrowanie po roku
-    if filter == "recent":
-        books = [b for b in books if b.year and b.year >= 2000]
-    elif filter == "classic":
-        books = [b for b in books if b.year and b.year < 2000]
-
-    return BooksResponse(stats=stats, books=books)
+    return response.data
 
 
-# Endpoint testowy – sprawdzenie, czy API działa
-@app.get("/")
-async def root():
-    return {"message": "Biblioteka API działa! Przejdź do /docs aby zobaczyć dokumentację."}
+@app.get("/api/authors")
+def get_authors():
+    response = supabase.table("authors").select("*").execute()
+    return response.data
+
+
+@app.get("/api/genres")
+def get_genres():
+    response = supabase.table("genres").select("*").execute()
+    return response.data
+
+
+@app.get("/api/reviews")
+def get_reviews(book_id: int):
+    response = (
+        supabase
+        .table("reviews")
+        .select("*")
+        .eq("book_id", book_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    return response.data
+
+
+@app.post("/api/reviews")
+def create_review(review: ReviewCreate):
+    response = (
+        supabase
+        .table("reviews")
+        .insert({
+            "book_id": review.book_id,
+            "user_name": review.user_name,
+            "rating": review.rating,
+            "content": review.content
+        })
+        .execute()
+    )
+
+    return response.data
