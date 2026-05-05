@@ -1,5 +1,4 @@
-fastapi
-uvicorn[standard]
-supabase
-python-dotenv
-pydantic
+.env
+__pycache__/
+.venv/
+*.pyc
