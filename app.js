@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const API_URL = 'https://TWOJ_LOGIN_PYTHONANYWHERE.pythonanywhere.com';
+    const API_URL = 'https://75310.pythonanywhere.com';
 
     const booksGrid = document.getElementById('booksGrid');
     const searchInput = document.getElementById('searchInput');
