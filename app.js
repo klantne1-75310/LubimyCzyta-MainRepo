@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const API_URL = 'https://75310.pythonanywhere.com';
+    const SUPABASE_URL = 'https://xfrmdatpjcjwfpgdtklf.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_O34fEUEcXoVfzvgjKQ5zDA_oIv1Ceyf';
+
+    const { createClient } = window.supabase;
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const booksGrid = document.getElementById('booksGrid');
     const searchInput = document.getElementById('searchInput');
@@ -15,9 +19,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const statGenres = document.getElementById('statGenres');
     const statPublishers = document.getElementById('statPublishers');
 
-    const refreshDataBtn = document.getElementById('refreshDataBtn');
+    // const refreshDataBtn = document.getElementById('refreshDataBtn');
+    const addBookBtn = document.getElementById('addBookBtn');
     const reloadTopBtn = document.getElementById('reloadTopBtn');
     const showAllBtn = document.getElementById('showAllBtn');
+
+    const authView = document.getElementById('authView');
+    const authEmail = document.getElementById('authEmail');
+    const authPassword = document.getElementById('authPassword');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const authStatus = document.getElementById('authStatus');
+    const appContainer = document.querySelector('.app-container');
+
 
     let allBooks = [];
     let filteredBooks = [];
@@ -37,48 +52,224 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getBookGradient(id) {
-        const safeId = Number(id) || 1;
-        const hue = (safeId * 47) % 360;
+        const hue = (id * 47) % 360;
         return `linear-gradient(135deg, hsl(${hue}, 70%, 55%), hsl(${(hue + 55) % 360}, 70%, 35%))`;
     }
 
+    async function safeSelect(table, columns, orderColumn = null) {
+        try {
+            let query = supabaseClient.from(table).select(columns);
+            if (orderColumn) {
+                query = query.order(orderColumn, { ascending: true });
+            }
+            const { data, error } = await query;
+            return { data: data || [], error };
+        } catch (err) {
+            return { data: [], error: err };
+        }
+    }
+
+
+async function checkSession() {
+    const { data, error } = await supabaseClient.auth.getSession();
+
+    if (error) {
+        authStatus.textContent = error.message;
+        showAuthView();
+        return;
+    }
+
+    if (data.session) {
+        showAppView();
+        await loadDatabase();
+    } else {
+        showAuthView();
+    }
+}
+
+function showAuthView() {
+    authView.classList.remove('hidden');
+    appContainer.classList.add('hidden');
+    detailPanel.classList.remove('active');
+}
+
+function showAppView() {
+    authView.classList.add('hidden');
+    appContainer.classList.remove('hidden');
+}
+
+async function loginUser() {
+    const email = authEmail.value.trim();
+    const password = authPassword.value.trim();
+
+    if (!email || !password) {
+        authStatus.textContent = 'Podaj email i hasło.';
+        return;
+    }
+
+    const { error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+    });
+
+    if (error) {
+        authStatus.textContent = error.message;
+        return;
+    }
+
+    authStatus.textContent = '';
+    showAppView();
+    await loadDatabase();
+}
+
+async function registerUser() {
+    const email = authEmail.value.trim();
+    const password = authPassword.value.trim();
+
+    if (!email || !password) {
+        authStatus.textContent = 'Podaj email i hasło.';
+        return;
+    }
+
+    const { error } = await supabaseClient.auth.signUp({
+        email,
+        password
+    });
+
+    if (error) {
+        authStatus.textContent = error.message;
+        return;
+    }
+
+    authStatus.textContent = 'Konto utworzone. Sprawdź email, jeśli Supabase wymaga potwierdzenia.';
+}
+
+async function logoutUser() {
+    await supabaseClient.auth.signOut();
+    showAuthView();
+}
+
+
+    async function safeInsert(table, payload) {
+    try {
+        const { data, error } = await supabaseClient
+            .from(table)
+            .insert(payload)
+            .select();
+
+        return {
+            data: data || [],
+            error
+        };
+    } catch (err) {
+        return {
+            data: [],
+            error: err
+        };
+    }
+}
+
     async function loadDatabase() {
-        setStatus('Ładowanie danych z backendu...');
+        setStatus('Ładowanie danych z Supabase...');
 
-        const response = await fetch(`${API_URL}/api/books`);
+        const [
+            booksRes,
+            authorsRes,
+            genresRes,
+            publishersRes,
+            bookAuthorsRes,
+            bookGenresRes,
+            bookPublishersRes
+        ] = await Promise.all([
+            safeSelect('ksiazki', 'id, tytul, rok_wydania', 'id'),
+            safeSelect('autorzy', 'id, imie, nazwisko', 'id'),
+            safeSelect('gatunki', 'id, nazwa', 'id'),
+            safeSelect('wydawcy', 'id, nazwa', 'id'),
+            safeSelect('ksiazki_autorzy', 'ksiazka_id, autor_id'),
+            safeSelect('ksiazki_gatunki', 'ksiazka_id, gatunek_id'),
+            safeSelect('ksiazki_wydawcy', 'ksiazka_id, wydawca_id')
+        ]);
 
-        if (!response.ok) {
-            throw new Error(`Backend zwrócił błąd HTTP ${response.status}`);
+        if (booksRes.error) {
+            console.error('Błąd ładowania ksiazki:', booksRes.error);
+            throw new Error(`Nie udało się pobrać tabeli "ksiazki": ${booksRes.error.message || booksRes.error}`);
         }
 
-        const result = await response.json();
+        const warnings = [];
+        if (authorsRes.error) warnings.push('autorzy');
+        if (genresRes.error) warnings.push('gatunki');
+        if (publishersRes.error) warnings.push('wydawcy');
+        if (bookAuthorsRes.error) warnings.push('ksiazki_autorzy');
+        if (bookGenresRes.error) warnings.push('ksiazki_gatunki');
+        if (bookPublishersRes.error) warnings.push('ksiazki_wydawcy');
 
-        const books = result.books || [];
-        const stats = result.stats || {};
-        const warnings = result.warnings || [];
+        const books = booksRes.data;
+        const authors = authorsRes.data;
+        const genres = genresRes.data;
+        const publishers = publishersRes.data;
+        const bookAuthors = bookAuthorsRes.data;
+        const bookGenres = bookGenresRes.data;
+        const bookPublishers = bookPublishersRes.data;
+
+        const authorsMap = new Map(
+            authors.map(a => [a.id, `${a.imie} ${a.nazwisko}`.trim()])
+        );
+
+        const genresMap = new Map(
+            genres.map(g => [g.id, g.nazwa])
+        );
+
+        const publishersMap = new Map(
+            publishers.map(w => [w.id, w.nazwa])
+        );
+
+        const authorsByBook = new Map();
+        const genresByBook = new Map();
+        const publishersByBook = new Map();
+
+        for (const row of bookAuthors) {
+            if (!authorsByBook.has(row.ksiazka_id)) {
+                authorsByBook.set(row.ksiazka_id, []);
+            }
+            const authorName = authorsMap.get(row.autor_id);
+            if (authorName) authorsByBook.get(row.ksiazka_id).push(authorName);
+        }
+
+        for (const row of bookGenres) {
+            if (!genresByBook.has(row.ksiazka_id)) {
+                genresByBook.set(row.ksiazka_id, []);
+            }
+            const genreName = genresMap.get(row.gatunek_id);
+            if (genreName) genresByBook.get(row.ksiazka_id).push(genreName);
+        }
+
+        for (const row of bookPublishers) {
+            if (!publishersByBook.has(row.ksiazka_id)) {
+                publishersByBook.set(row.ksiazka_id, []);
+            }
+            const publisherName = publishersMap.get(row.wydawca_id);
+            if (publisherName) publishersByBook.get(row.ksiazka_id).push(publisherName);
+        }
 
         allBooks = books.map(book => ({
             id: book.id,
-            title: book.title,
-            year: book.year,
-            authors: Array.isArray(book.authors) ? book.authors : [],
-                                      genres: Array.isArray(book.genres) ? book.genres : [],
-                                      publishers: Array.isArray(book.publishers) ? book.publishers : [],
-                                      gradient: getBookGradient(book.id)
+            title: book.tytul,
+            year: book.rok_wydania,
+            authors: [...new Set(authorsByBook.get(book.id) || [])],
+            genres: [...new Set(genresByBook.get(book.id) || [])],
+            publishers: [...new Set(publishersByBook.get(book.id) || [])],
+            gradient: getBookGradient(book.id)
         }));
 
-        statBooks.textContent = stats.books ?? allBooks.length;
-        statAuthors.textContent = stats.authors ?? 0;
-        statGenres.textContent = stats.genres ?? 0;
-        statPublishers.textContent = stats.publishers ?? 0;
+        statBooks.textContent = books.length;
+        statAuthors.textContent = authors.length;
+        statGenres.textContent = genres.length;
+        statPublishers.textContent = publishers.length;
 
         if (warnings.length) {
-            setStatus(
-                `Załadowano książki, ale nie udało się pobrać części tabel: ${warnings.join(', ')}`,
-                      'warning'
-            );
+            setStatus(`Załadowano książki, ale nie udało się pobrać części tabel: ${warnings.join(', ')}`, 'warning');
         } else {
-            setStatus(`Załadowano ${allBooks.length} książek z backendu.`);
+            setStatus(`Załadowano ${books.length} książek z bazy.`);
         }
 
         applyFilters();
@@ -88,16 +279,16 @@ document.addEventListener('DOMContentLoaded', () => {
         visibleCount = 18;
 
         let result = [...allBooks];
-        const query = currentQuery.trim().toLowerCase();
 
+        const query = currentQuery.trim().toLowerCase();
         if (query) {
             result = result.filter(book => {
                 const haystack = [
                     book.title,
                     String(book.year ?? ''),
-                                   ...book.authors,
-                                   ...book.genres,
-                                   ...book.publishers
+                    ...book.authors,
+                    ...book.genres,
+                    ...book.publishers
                 ].join(' | ').toLowerCase();
 
                 return haystack.includes(query);
@@ -117,11 +308,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderBooks() {
         if (!filteredBooks.length) {
             booksGrid.innerHTML = `
-            <div class="empty-state">
-            Brak książek spełniających kryteria.
-            </div>
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    Brak książek spełniających kryteria.
+                </div>
             `;
-
             showMoreContainer.classList.add('hidden');
             return;
         }
@@ -129,25 +319,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const booksToShow = filteredBooks.slice(0, visibleCount);
 
         booksGrid.innerHTML = booksToShow.map(book => `
-        <div class="book-card" data-book-id="${escapeHtml(String(book.id))}">
-        <div class="book-cover" style="background: ${book.gradient}">
-        <div class="book-title">${escapeHtml(book.title || 'Brak tytułu')}</div>
-        <div class="book-author">${escapeHtml(book.authors[0] || 'Nieznany autor')}</div>
-        <div class="book-year">${escapeHtml(String(book.year ?? 'Brak roku'))}</div>
-        </div>
-        </div>
+            <div class="book-card" data-book-id="${book.id}">
+                <div class="book-cover" style="background: ${book.gradient};">
+                    <div class="book-title">${escapeHtml(book.title)}</div>
+                    <div class="book-author">${escapeHtml(book.authors[0] || 'Nieznany autor')}</div>
+                    <div class="book-year">${escapeHtml(String(book.year ?? 'Brak roku'))}</div>
+                </div>
+            </div>
         `).join('');
 
         const cards = booksGrid.querySelectorAll('.book-card');
-
         cards.forEach(card => {
             card.addEventListener('click', () => {
                 const bookId = Number(card.dataset.bookId);
-                const book = allBooks.find(item => item.id === bookId);
-
-                if (book) {
-                    openDetailPanel(book);
-                }
+                const book = allBooks.find(b => b.id === bookId);
+                if (book) openDetailPanel(book);
             });
         });
 
@@ -159,102 +345,86 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openDetailPanel(book) {
-        const authorsText = book.authors.length
-        ? book.authors.join(', ')
-        : 'Nieznany autor';
-
+        const authorsText = book.authors.length ? book.authors.join(', ') : 'Nieznany autor';
         const genresHtml = book.genres.length
-        ? book.genres.map(genre => `<span class="detail-tag">${escapeHtml(genre)}</span>`).join('')
-        : '<span class="detail-tag gray">Brak gatunku</span>';
+            ? book.genres.map(g => `<span class="detail-tag">${escapeHtml(g)}</span>`).join('')
+            : '<span class="detail-tag gray">Brak gatunku</span>';
 
         const publishersHtml = book.publishers.length
-        ? book.publishers.map(publisher => `<span class="detail-tag gray">${escapeHtml(publisher)}</span>`).join('')
-        : '<span class="detail-tag gray">Brak wydawcy</span>';
+            ? book.publishers.map(p => `<span class="detail-tag gray">${escapeHtml(p)}</span>`).join('')
+            : '<span class="detail-tag gray">Brak wydawcy</span>';
 
         detailPanelContent.innerHTML = `
-        <button class="detail-close" id="detailCloseBtn">✕</button>
+            <button class="detail-close" id="detailCloseBtn">✕</button>
 
-        <div class="detail-book-info">
-        <div class="detail-cover" style="background: ${book.gradient}">
-        <div class="book-title">${escapeHtml(book.title || 'Brak tytułu')}</div>
-        <div class="book-author">${escapeHtml(book.authors[0] || 'Nieznany autor')}</div>
-        <div class="book-year">${escapeHtml(String(book.year ?? 'Brak roku'))}</div>
-        </div>
+            <div class="detail-book-info">
+                <div class="detail-cover" style="background: ${book.gradient};">
+                    <div class="book-title">${escapeHtml(book.title)}</div>
+                    <div class="book-author">${escapeHtml(book.authors[0] || 'Nieznany autor')}</div>
+                    <div class="book-year">${escapeHtml(String(book.year ?? 'Brak roku'))}</div>
+                </div>
 
-        <div class="detail-info">
-        <h2>${escapeHtml(book.title || 'Brak tytułu')}</h2>
+                <div class="detail-info">
+                    <h2>${escapeHtml(book.title)}</h2>
+                    <div class="author-name">✍️ ${escapeHtml(authorsText)}</div>
 
-        <div class="author-name">
-        ✍️ ${escapeHtml(authorsText)}
-        </div>
+                    <div class="detail-meta">
+                        <div class="detail-meta-item">
+                            <strong>ID:</strong>
+                            <span>${book.id}</span>
+                        </div>
+                        <div class="detail-meta-item">
+                            <strong>Rok:</strong>
+                            <span>${escapeHtml(String(book.year ?? 'Brak danych'))}</span>
+                        </div>
+                        <div class="detail-meta-item">
+                            <strong>Autorzy:</strong>
+                            <span>${escapeHtml(authorsText)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-        <div class="detail-meta">
-        <div class="detail-meta-item">
-        <strong>ID:</strong>
-        <span>${escapeHtml(String(book.id))}</span>
-        </div>
+            <div class="detail-description">
+                <h3>Gatunki</h3>
+                <div class="detail-tags">${genresHtml}</div>
 
-        <div class="detail-meta-item">
-        <strong>Rok:</strong>
-        <span>${escapeHtml(String(book.year ?? 'Brak danych'))}</span>
-        </div>
+                <h3 style="margin-top: 20px;">Wydawcy</h3>
+                <div class="detail-tags">${publishersHtml}</div>
 
-        <div class="detail-meta-item">
-        <strong>Autorzy:</strong>
-        <span>${escapeHtml(authorsText)}</span>
-        </div>
-        </div>
-        </div>
-        </div>
-
-        <div class="detail-description">
-        <h3>Gatunki</h3>
-        <div class="detail-tags">
-        ${genresHtml}
-        </div>
-
-        <h3 style="margin-top: 20px;">Wydawcy</h3>
-        <div class="detail-tags">
-        ${publishersHtml}
-        </div>
-
-        <h3 style="margin-top: 20px;">Opis widoku</h3>
-        <p>
-        To jest widok danych pobranych przez backend FastAPI z bazy Supabase.
-        Książka <strong>${escapeHtml(book.title || 'Brak tytułu')}</strong>
-        została wydana w roku ${escapeHtml(String(book.year ?? 'brak'))}.
-        </p>
-
-        <p>
-        Autorzy: ${escapeHtml(authorsText)}.
-        ${book.genres.length ? `Gatunki: ${escapeHtml(book.genres.join(', '))}.` : ''}
-        ${book.publishers.length ? `Wydawcy: ${escapeHtml(book.publishers.join(', '))}.` : ''}
-        </p>
-        </div>
+                <h3 style="margin-top: 24px;">Opis widoku</h3>
+                <p>
+                    To jest widok danych pobranych bezpośrednio z Supabase.
+                    Książka <strong>${escapeHtml(book.title)}</strong> została wydana w roku
+                    <strong>${escapeHtml(String(book.year ?? 'brak'))}</strong>.
+                </p>
+                <p>
+                    Autorzy: ${escapeHtml(authorsText)}.
+                    ${book.genres.length ? `Gatunki: ${escapeHtml(book.genres.join(', '))}.` : ''}
+                    ${book.publishers.length ? `Wydawcy: ${escapeHtml(book.publishers.join(', '))}.` : ''}
+                </p>
+            </div>
         `;
 
         detailPanel.classList.add('active');
 
-        document
-        .getElementById('detailCloseBtn')
-        .addEventListener('click', closeDetailPanel);
+        document.getElementById('detailCloseBtn').addEventListener('click', closeDetailPanel);
     }
 
     function closeDetailPanel() {
         detailPanel.classList.remove('active');
     }
 
-    searchInput.addEventListener('input', event => {
-        currentQuery = event.target.value;
+    searchInput.addEventListener('input', e => {
+        currentQuery = e.target.value;
         applyFilters();
     });
 
-    filterBtns.forEach(button => {
-        button.addEventListener('click', () => {
-            filterBtns.forEach(item => item.classList.remove('active'));
-            button.classList.add('active');
-
-            currentFilter = button.dataset.filter;
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.dataset.filter;
             applyFilters();
         });
     });
@@ -264,50 +434,75 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBooks();
     });
 
-    refreshDataBtn.addEventListener('click', async () => {
-        try {
-            await loadDatabase();
-        } catch (error) {
-            console.error(error);
-            setStatus(`Błąd ładowania danych: ${error.message}`, 'error');
-        }
-    });
+    // refreshDataBtn.addEventListener('click', async () => {
+    //     await loadDatabase();
+    // });
 
     reloadTopBtn.addEventListener('click', async () => {
-        try {
-            await loadDatabase();
-        } catch (error) {
-            console.error(error);
-            setStatus(`Błąd ładowania danych: ${error.message}`, 'error');
-        }
+        await loadDatabase();
     });
 
     showAllBtn.addEventListener('click', () => {
         currentQuery = '';
         searchInput.value = '';
         currentFilter = 'all';
-
-        filterBtns.forEach(button => button.classList.remove('active'));
+        filterBtns.forEach(b => b.classList.remove('active'));
         document.querySelector('[data-filter="all"]').classList.add('active');
-
         applyFilters();
     });
 
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') {
+    addBookBtn.addEventListener('click', async () => {
+    const title = prompt('Podaj tytuł książki:');
+    if (!title) return;
+
+    const yearInput = prompt('Podaj rok wydania:');
+    const year = Number(yearInput);
+
+    if (Number.isNaN(year)) {
+        alert('Rok wydania musi być liczbą.');
+        return;
+    }
+
+    setStatus('Dodawanie książki do bazy...');
+
+    const result = await safeInsert('ksiazki', [
+        {
+            tytul: title,
+            rok_wydania: year
+        }
+    ]);
+
+    if (result.error) {
+        console.error(result.error);
+        setStatus(
+            `Błąd dodawania książki: ${result.error.message || result.error}`,
+            'error'
+        );
+        return;
+    }
+
+    setStatus(`Dodano książkę "${title}".`);
+
+    await loadDatabase();
+});
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
             closeDetailPanel();
         }
     });
 
-    loadDatabase().catch(error => {
-        console.error(error);
+    loginBtn.addEventListener('click', loginUser);
+    registerBtn.addEventListener('click', registerUser);
+    logoutBtn.addEventListener('click', logoutUser);
 
-        setStatus(`Błąd ładowania danych: ${error.message}`, 'error');
-
+    checkSession().catch(err => {
+        console.error(err);
+        setStatus(`Błąd ładowania danych: ${err.message}`, 'error');
         booksGrid.innerHTML = `
-        <div class="empty-state">
-        Nie udało się załadować danych z backendu.
-        </div>
+            <div class="empty-state" style="grid-column: 1 / -1;">
+                Nie udało się załadować danych z Supabase.
+            </div>
         `;
     });
 });

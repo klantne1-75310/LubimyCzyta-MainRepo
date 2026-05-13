@@ -3,10 +3,23 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Biblioteka</title>
+    <title>Biblioteka Supabase</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+    <div id="authView" class="auth-view">
+        <div class="auth-card">
+            <h1>Logowanie</h1>
+
+            <input id="authEmail" type="email" placeholder="Email" />
+            <input id="authPassword" type="password" placeholder="Hasło" />
+
+            <button id="loginBtn">Zaloguj</button>
+            <button id="registerBtn">Zarejestruj</button>
+
+            <p id="authStatus"></p>
+        </div>
+    </div>
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -15,16 +28,22 @@
             </div>
 
             <nav class="sidebar-nav">
+                <a class="nav-item" id="logoutBtn">
+                    <span class="icon">🚪</span>
+                    <span>Wyloguj</span>
+                </a>
                 <a class="nav-item active">
                     <span class="icon">🏠</span>
                     <span>Książki</span>
                 </a>
-
-                <a class="nav-item" id="refreshDataBtn">
+                <!-- <a class="nav-item" id="refreshDataBtn">
                     <span class="icon">🔄</span>
                     <span>Odśwież</span>
+                </a> -->
+                <a class="nav-item" id="addBookBtn">
+                    <span class="icon">➕</span>
+                    <span>Dodaj książkę</span>
                 </a>
-
                 <a class="nav-item" id="showAllBtn">
                     <span class="icon">📖</span>
                     <span>Pokaż wszystko</span>
@@ -54,40 +73,19 @@
                     <h1>Twoja baza książek</h1>
 
                     <div class="stats-row">
-                        <div class="stat-pill">
-                            Książki: <strong id="statBooks">0</strong>
-                        </div>
-
-                        <div class="stat-pill">
-                            Autorzy: <strong id="statAuthors">0</strong>
-                        </div>
-
-                        <div class="stat-pill">
-                            Gatunki: <strong id="statGenres">0</strong>
-                        </div>
-
-                        <div class="stat-pill">
-                            Wydawcy: <strong id="statPublishers">0</strong>
-                        </div>
+                        <div class="stat-pill">Książki: <strong id="statBooks">0</strong></div>
+                        <div class="stat-pill">Autorzy: <strong id="statAuthors">0</strong></div>
+                        <div class="stat-pill">Gatunki: <strong id="statGenres">0</strong></div>
+                        <div class="stat-pill">Wydawcy: <strong id="statPublishers">0</strong></div>
                     </div>
 
                     <div class="filter-buttons">
-                        <button class="filter-btn active" data-filter="all">
-                            Wszystkie
-                        </button>
-
-                        <button class="filter-btn" data-filter="recent">
-                            Od 2000
-                        </button>
-
-                        <button class="filter-btn" data-filter="classic">
-                            Przed 2000
-                        </button>
+                        <button class="filter-btn active" data-filter="all">Wszystkie</button>
+                        <button class="filter-btn" data-filter="recent">Od 2000</button>
+                        <button class="filter-btn" data-filter="classic">Przed 2000</button>
                     </div>
 
-                    <div id="statusBox" class="status-box">
-                        Gotowe do pobrania danych.
-                    </div>
+                    <div id="statusBox" class="status-box">Gotowe do pobrania danych.</div>
                 </div>
 
                 <div id="booksGrid" class="books-grid"></div>
@@ -106,6 +104,7 @@
         <div id="detailPanelContent" class="detail-panel-content"></div>
     </aside>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
 </body>
 </html>
